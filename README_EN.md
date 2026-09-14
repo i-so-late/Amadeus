@@ -160,8 +160,8 @@ separately. Desktop, microphone, and playback behavior still need real-device
 acceptance. L3 offers CPU VAD with **no NVIDIA GPU requirement**. The current L4
 cu124 profile targets Windows + NVIDIA. Windows ROCm 7.2.1 has a mutually exclusive
 `local-rocm` experimental lock and validation tools, but end-to-end acceptance on
-supported AMD hardware remains incomplete. RTX 50-series cu128 remains a community
-configuration record.
+supported AMD hardware remains incomplete. NVIDIA cu128 and Apple Silicon MPS
+have experimental Torch 2.7.0 installation profiles.
 
 All profiles use [uv](https://docs.astral.sh/uv/) and Python 3.12; CI pins uv 0.12.8.
 
@@ -177,7 +177,7 @@ Linux users should start with [Linux (experimental)](#linux-experimental) below.
 
 The four default tiers and the ROCm experiment use **the same `.venv`**. Give the
 complete target configuration each time: `uv sync` is exact and removes packages
-from omitted tiers. `torch-cpu`, `local-cu124`, and `local-rocm` are pairwise
+from omitted tiers. `torch-cpu`, `local-cu124`, `local-cu128`, `local-mps`, and `local-rocm` are pairwise
 incompatible. To switch builds, replace the build extra while keeping `voice`
 and `vad`. See [installation profiles and migration](docs/install_profiles.md).
 
@@ -250,8 +250,12 @@ Where network access requires it, configure npm/Electron mirrors, such as
 support still pending.** [Phase 1 Linux CI (#63)](https://github.com/Code-Amadeus/Amadeus/pull/63)
 has passed locked L1 + dev installation, environment imports and model-less
 dependency checks, basic contract tests, Ruff, architecture-view checks, and the
-Electron build on Ubuntu 24.04. CI does not cover the Electron GUI, audio devices,
-VAD, local model inference, Wayland sessions, or wallpaper integration.
+Electron build on Ubuntu 24.04. A separate Voice source-build job checks locked
+installation, AEC import, bundled Abseil selection and related contracts. CI does
+not cover the Electron GUI, real audio devices, VAD/local model inference,
+Wayland sessions, or wallpaper integration.
+Additional jobs check cu128 candidate installation, dependencies and transitions
+back to CPU VAD; they do not qualify real GPU model inference.
 
 The community has reported desktop and character-rendering results on Arch Linux /
 Wayland. These reports do not establish compatibility across all distributions or
@@ -293,14 +297,29 @@ For a headless backend instead, run this from the project root:
 uv run --locked --no-sync python -m server.app --port 17777
 ```
 
+For remote voice, recording and playback, install L2 in the same `.venv`.
+On Ubuntu 24.04, install the native prerequisites used by CI first; other Linux
+distributions need their corresponding package names:
+
+```bash
+sudo apt-get update
+sudo apt-get install --no-install-recommends -y build-essential pkg-config portaudio19-dev
+uv sync --locked --extra voice
+uv run --locked --no-sync python tools/verify_python_environment.py --profile voice
+```
+
 Before adding voice or local models, consider these experimental boundaries:
 
-- **Voice / AEC:** the community reports that `aec-audio-processing==1.0.1` fails
-  to compile with a newer Arch toolchain, blocking `--extra voice` installation.
-  This has not been established as a problem on all Linux distributions.
-- **VAD / NVIDIA:** community inference results exist, but Linux CI does not cover
-  them. The current CPU/cu124 PyTorch index selection only applies on Windows;
-  reproducible Linux build profiles still need work.
+- **Voice / AEC:** Linux uses vendored source based on the official
+  `aec-audio-processing==1.0.1` sdist and forces bundled Abseil 20240722.0 to avoid
+  selecting an incompatible modern system Abseil. The system installation is
+  unchanged; Windows/macOS retain their registry artifacts. Source identity,
+  the isolated patch and removal conditions are in [AEC provenance](vendor/aec-audio-processing.PROVENANCE.md).
+  Build/import success does not qualify real-device echo cancellation or full voice interaction.
+- **VAD / NVIDIA:** Linux CPU VAD and the `local-cu128` candidate have explicit
+  Torch build selections and installation/contract CI. The cu124 reference
+  remains Windows-specific; real GPU inference and full voice interaction
+  require device acceptance. See the candidate profiles below.
 - **Desktop / wallpaper:** GUI and Wayland compositor integration need separate
   acceptance. Community GNOME results do not establish support for niri, KDE, or
   other desktops.
@@ -341,25 +360,32 @@ The maintainer's Radeon 780M (gfx1103) was detected by ROCm but crashed in an AM
 HIP DLL on the first FP32 operation. It is absent from AMD's official ROCm 7.2.1
 Windows PyTorch support matrix and is not treated as a usable target.
 
-> **GeForce RTX 50 series (Blackwell, community-validated configuration):**
-> the current `torch==2.6.0+cu124` profile is incompatible with RTX 50-series
-> GPUs and cannot run the local CUDA voice models. Update the NVIDIA driver and
-> use the community-validated PyTorch 2.7.0 CUDA 12.8 combination instead.
->
-> Run these commands only in a separate experimental project environment, such
-> as `.venv_cu128`; keep the qualified `.venv` and its cu124 lock intact.
->
-> ```powershell
-> uv venv .venv_cu128 --python 3.12
-> uv pip install --python .venv_cu128 --reinstall `
->   torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 `
->   --index-url https://download.pytorch.org/whl/cu128
-> ```
->
-> This installs only the reported PyTorch combination, not the complete Amadeus
-> environment. It has not passed the project's full clean-install, ASR/TTS/VAD,
-> and Electron regression gates. `uv.lock` and the `--profile cu124` verifier
-> still require `torch==2.6.0+cu124`; this is not a replacement for that baseline.
+**Experimental Torch 2.7 profiles:** `local-cu128` (Windows/Linux x86_64)
+and `local-mps` (Apple Silicon) select locked Torch/Torchaudio 2.7.0 packages.
+Windows cu124 remains the reference, and Windows ROCm retains AMD's 2.9.1 pair.
+
+```bash
+# Windows/Linux NVIDIA candidate, including the model dependency set
+uv sync --locked --extra voice --extra vad --extra local-cu128
+uv run --locked --no-sync python tools/verify_python_environment.py --profile cu128
+
+# Apple Silicon installation candidate
+uv sync --locked --extra voice --extra vad --extra local-mps
+uv run --locked --no-sync python tools/verify_python_environment.py --profile mps
+```
+
+Select only the command for your platform. Installation and CPU contract CI do
+not qualify GPU inference, microphones, continuous playback or interruption.
+Issue #67 reports standalone Qwen-ASR MPS results on an M4 Max; the application
+currently accepts only CPU/CUDA Qwen device selection. Installing `local-mps`
+does not enable application ASR MPS routing. The existing GPT-SoVITS MPS path
+can use this candidate environment; its 2.7.0 model regression still needs testing.
+
+RTX 50-series users should evaluate cu128; cu124 is not a Blackwell baseline.
+FlashAttention remains optional. Matching cp312/Torch 2.7/cu128 community Windows
+and upstream Linux wheels have been located; see
+[Torch 2.7 and FlashAttention candidates](docs/torch27_candidates.md) for sources,
+hashes and verification limits.
 
 ### Install external runtime assets
 
@@ -536,11 +562,11 @@ advanced diagnostics, experimental thresholds, and test-only flags remain in
 | Scope | Status |
 |---|---|
 | L1/L2 (text + remote voice) | Source deployment on Windows and macOS; Windows is the reference platform, macOS L1/L2 has separate CI, and desktop/audio behavior still needs real-device acceptance |
-| Linux (experimental) | Ubuntu 24.04 CI covers basic L1 checks and the Electron build; GUI, voice, GPU, and wallpaper acceptance remains incomplete. See [Linux setup](#linux-experimental) |
+| Linux (experimental) | Ubuntu 24.04 CI covers L1, L2 Voice source builds and the Electron build; GUI, real audio devices, GPU and wallpaper still need acceptance. See [Linux setup](#linux-experimental) |
 | L3 CPU VAD | No NVIDIA GPU required; uses an explicit CPU build selection |
 | L4 cu124 (local CUDA 12.4 voice) | Windows + NVIDIA; follows the qualified local-model configuration |
 | AMD ROCm 7.2.1 | Single-`.venv` experimental lock, sidecar adapters and failure reporting; acceptance on supported AMD hardware remains incomplete |
-| RTX 50-series cu128 | Community configuration record without a formal lock or full regression qualification |
+| cu128 / Apple Silicon MPS | Experimental Torch 2.7.0 lock and installation CI; full device/model qualification pending |
 | 8 GiB VRAM / 16–32 GiB RAM | Target configuration; actual use depends on model selection |
 | Remote DeepSeek Main Chat | First-release default profile |
 | Remote ASR / TTS | Explicit compatibility path, never a silent fallback |
