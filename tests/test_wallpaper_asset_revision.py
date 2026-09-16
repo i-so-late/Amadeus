@@ -5,6 +5,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from unittest.mock import AsyncMock, patch as mock_patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -108,8 +109,21 @@ def test_electron_slice_uses_normalized_crt_geometry_and_shared_canvas_channel()
     host._asset_port = 17778
     host._bridge_port = 17797
     host._slice_host = "electron"
-    assert host.url.endswith("&host=webwallpaper&sliceHost=electron")
-    assert host.lively_url.endswith("&bridgePort=17797&sliceHost=electron")
+    render_query = parse_qs(urlparse(host.url).query)
+    lively_query = parse_qs(urlparse(host.lively_url).query)
+    expected = {
+        "graphicsProfile": [wallpaper_engine_bridge.GRAPHICS_PROFILE],
+        "renderMaxFps": [str(wallpaper_engine_bridge.RENDER_EFFECTIVE_MAX_FPS)],
+        "renderTextureSampling": [str(int(wallpaper_engine_bridge.RENDER_TEXTURE_SAMPLING))],
+        "bridgePort": ["17797"],
+        "sliceHost": ["electron"],
+    }
+    if wallpaper_engine_bridge.RENDER_EFFECTIVE_MAX_RESOLUTION is not None:
+        expected["renderMaxResolution"] = [
+            str(wallpaper_engine_bridge.RENDER_EFFECTIVE_MAX_RESOLUTION)
+        ]
+    assert render_query == {**expected, "host": ["webwallpaper"]}
+    assert lively_query == {**expected, "assetPort": ["17778"]}
 
 
 def test_electron_slice_encloses_the_separate_input_toggle_and_composer() -> None:
@@ -151,7 +165,6 @@ def test_electron_slice_assets_reuse_the_wallpaper_surface_without_a_second_ui()
     assert '<script src="/render/web/crt_canvas_surface.js"></script>' in html
     assert '<script src="/render/web/electron_keyboard_composer.js"></script>' in html
     assert "createCrtCanvasSurface()" in host
-    assert 'bridgeEndpoint("canvas-state")' in host
     assert 'bridgeEndpoint("canvas-events")' in host
     assert "setElectronSliceShape" in host
     assert "shapeFlushTimer" in host
@@ -159,6 +172,7 @@ def test_electron_slice_assets_reuse_the_wallpaper_surface_without_a_second_ui()
     assert "shapeRetryTimer" in host
     assert "accepted === true" in host
     assert "setCanvasPresentation" in host
+    assert "setCanvasPresentation(profile) { desktopScene.setCanvasPresentation(profile || {}); }" in wallpaper_scene
     assert "setAttention" in host
     assert "keyboardInputToggleBounds" in host
     assert "keyboardComposerBounds" in host
@@ -425,7 +439,7 @@ const context = {
     fetchCalls.push({ url, options });
     return {
       ok: true,
-      json: async () => ({ assetPort: 17778, bridgePort: 17797 }),
+      json: async () => ({ assetPort: 17778, bridgePort: 17797, graphicsProfile: "standard", renderMaxFps: 60, renderMaxResolution: null }),
     };
   },
   document: {
@@ -468,7 +482,7 @@ const context = {
     assert result["events"] == ["bridge-info", "iframe-src"]
     assert result["iframeSrc"] == (
         "http://127.0.0.1:17778/render/web/wallpaper_engine.html"
-        "?bridgePort=17797&host=lively"
+        "?bridgePort=17797&host=lively&renderMaxFps=60&graphicsProfile=standard&renderTextureSampling=0"
     )
 
 
@@ -488,7 +502,7 @@ if (!scriptMatch) {
 
 const bridgeResponses = [
   { running: false },
-  { running: true, assetPort: 17778, bridgePort: 17797 },
+  { running: true, assetPort: 17778, bridgePort: 17797, graphicsProfile: "standard", renderMaxFps: 60, renderMaxResolution: null, renderTextureSampling: true },
 ];
 const events = [];
 const fetchCalls = [];
@@ -621,7 +635,7 @@ const context = {
     ]
     assert result["iframeAssignments"] == [
         "http://127.0.0.1:17778/render/web/wallpaper_engine.html"
-        "?bridgePort=17797&host=lively"
+        "?bridgePort=17797&host=lively&renderMaxFps=60&graphicsProfile=standard&renderTextureSampling=1"
     ]
     assert result["iframeSrc"] == result["iframeAssignments"][0]
 

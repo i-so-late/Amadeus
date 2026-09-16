@@ -13,7 +13,7 @@
 <p>
   <a href="https://www.bilibili.com/video/BV1783G6hEYY/"><img src="https://img.shields.io/badge/demo-Bilibili-2f624a?labelColor=061710&logo=bilibili&logoColor=61eeb6" alt="B 站演示"/></a>
   <a href="./assets/architecture-overview-crt.svg"><img src="https://img.shields.io/badge/architecture-current-184b36?labelColor=061710" alt="当前架构图"/></a>
-  <img src="https://img.shields.io/badge/version-0.1_%CE%B1-2f624a?labelColor=061710" alt="Amadeus 0.1 alpha"/>
+  <img src="https://img.shields.io/badge/version-0.15_Alpha-2f624a?labelColor=061710" alt="Amadeus 0.15 Alpha candidate"/>
   <img src="https://img.shields.io/badge/安装配置-core%20%2F%20voice%20%2F%20CPU%20VAD%20%2F%20cu124-2f624a?labelColor=061710" alt="安装配置：core、voice、CPU VAD、cu124"/>
   <img src="https://img.shields.io/badge/license-AGPL--3.0-272018?labelColor=061710" alt="许可证"/>
 </p>
@@ -24,8 +24,10 @@
 
 </div>
 
+> [0.15 Alpha：路由权威、开关与验收范围](docs/alpha-0.15.md)
+
 > [!IMPORTANT]
-> 本仓库包含可构建、可运行的公开源码，当前版本为 **0.1 α**，
+> 本仓库包含可构建、可运行的公开源码，本分支为 **0.15 Alpha 候选版**，
 > 不是带安装器的正式桌面发行版。Amadeus 第一方代码依据
 > [GNU Affero General Public License v3.0（AGPL-3.0）](LICENSE) 开源。
 > 第三方代码与外部资产保留各自条款。
@@ -490,6 +492,48 @@ Electron 会直接创建桌面层的全场景窗口，并用独立透明窗口�
 场景本身保持鼠标穿透，不会挡住 Finder 桌面图标。该能力目前属于社区实机验证候选，
 不构成正式 macOS 支持；依赖与 CI 由 [#46](https://github.com/Code-Amadeus/Amadeus/pull/46)
 承接，目前也不包含签名、公证或安装器。
+
+### 图形性能配置
+
+所有 PixiJS 角色与壁纸表面共享一个 `.env` 图形 Profile：
+
+| `GRAPHICS_PROFILE` | 最大帧率 | resolution | 用途 |
+|---|---:|---:|---|
+| `standard`（默认） | 60 FPS | 原生 device-pixel ratio | 保持动画设计质量 |
+| `power_saving` | 30 FPS | 最高 1.5× | 降低 GPU、功耗与发热 |
+| `custom` | `RENDER_MAX_FPS` | `RENDER_MAX_RESOLUTION` | 自定义性能预算 |
+
+自定义帧率支持 10–240 FPS，resolution 支持 0.25–4.0。示例：
+
+```dotenv
+GRAPHICS_PROFILE=custom
+RENDER_MAX_FPS=45
+RENDER_MAX_RESOLUTION=1.25
+```
+
+Wallpaper Engine 通过
+[`applyGeneralProperties().fps`](https://docs.wallpaperengine.io/en/web/performance/fps.html)
+提供用户 FPS 设置时，运行时采用该设置与项目 Profile 中较低的有效值；Electron、
+Lively 及普通角色表面没有该宿主设置，直接使用项目 Profile。
+暂不提供对应 GUI，修改 `.env` 后需重启 Amadeus。
+
+#### 实验性纹理采样（默认关闭）
+
+`RENDER_TEXTURE_SAMPLING=false` 为默认值，保持现有的全帧加载与播放规则。
+**16GB 或其他内存压力较大的设备**，可考虑在 `.env` 中开启并选择 30 FPS 省电档：
+
+```dotenv
+GRAPHICS_PROFILE=power_saving
+RENDER_TEXTURE_SAMPLING=true
+```
+
+开启后，角色动画按有效帧率选择要加载的源帧，保留关键停留帧、动作时长与嘴型索引。
+本机 30 FPS 离屏实验中，CPU 纹理缓冲约减少 50%，播放帧间隔与原版接近；
+这不代表整机 RAM 或显存减半，16GB 实机及长期运行仍待验证。
+详见[实验数据与限制](docs/fps_texture_sampling_experiment_2026-09-16.md)。
+
+修改后需重启 Amadeus/后端并重开壁纸。仅切换绘制 FPS 不会立即重建纹理缓存。
+如需恢复原行为，将 `RENDER_TEXTURE_SAMPLING=false` 后按同样步骤重启。
 
 ## 配置所有权
 
